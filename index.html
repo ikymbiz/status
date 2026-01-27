@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>在籍ステータス Sync (Firebase)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root { --red: #d32f2f; --green: #2e7d32; --dark: #333; }
+        body { margin: 0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
+        .status-box { width: 90%; max-width: 800px; padding: 10vh 20px; border-radius: 50px; text-align: center; color: white; box-shadow: 0 15px 40px rgba(0,0,0,0.15); transition: 0.4s; }
+        .mode-meeting { background-color: var(--red); }
+        .mode-available { background-color: var(--green); }
+        .status-text { font-size: 15vw; font-weight: 900; margin: 0; }
+        .sub-text { font-size: 5vw; margin-top: 1rem; font-weight: bold; }
+        .info-container { margin-top: 2.5rem; text-align: center; color: #666; }
+        .live-dot { display: inline-block; width: 10px; height: 10px; background: #2da44e; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
+        #admin-panel { display: none; position: fixed; bottom: 5vh; width: 80%; max-width: 300px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); text-align: center; }
+        .toggle-btn { padding: 15px; font-size: 18px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; width: 100%; }
+        @media (min-width: 1000px) { .status-text { font-size: 160px; } .sub-text { font-size: 45px; } }
+    </style>
+</head>
+<body>
+
+    <div id="admin-trigger" style="position:fixed; top:0; left:0; width:80px; height:80px;"></div>
+
+    <div id="box" class="status-box mode-available">
+        <h1 id="status" class="status-text">読み込み中...</h1>
+        <p id="sub" class="sub-text">お待ちください</p>
+    </div>
+
+    <div class="info-container">
+        <div><span class="live-dot"></span><span id="abs-time">最終更新: --:--</span></div>
+    </div>
+
+    <div id="admin-panel">
+        <button class="toggle-btn" onclick="toggleStatus()">ステータスを切り替え</button>
+    </div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    // --- ここにご自身のConfigを貼り付けてください ---
+    // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyAvEfy8_iXOCrzINwhhUyySInZ2yA7ZtUM",
+  authDomain: "status-dd3a0.firebaseapp.com",
+  databaseURL: "https://status-dd3a0-default-rtdb.firebaseio.com",
+  projectId: "status-dd3a0",
+  storageBucket: "status-dd3a0.firebasestorage.app",
+  messagingSenderId: "333535148027",
+  appId: "1:333535148027:web:62b48fe982fbc6bbb2bd5e",
+  measurementId: "G-M5G2EYC08K"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const dbRef = ref(db, 'presence');
+
+    let currentStatus = "available";
+
+    // 1. データのリアルタイム受信
+    onValue(dbRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            currentStatus = data.status;
+            updateUI(data.status, data.lastUpdated);
+        }
+    });
+
+    function updateUI(status, time) {
+        const box = document.getElementById("box");
+        const statusTxt = document.getElementById("status");
+        const subTxt = document.getElementById("sub");
+        const absTimeTxt = document.getElementById("abs-time");
+
+        if (status === "meeting") {
+            box.className = "status-box mode-meeting";
+            statusTxt.textContent = "会議中";
+            subTxt.textContent = "お静かにお願いします";
+        } else {
+            box.className = "status-box mode-available";
+            statusTxt.textContent = "対応可";
+            subTxt.textContent = "ただし常時勤務中";
+        }
+        absTimeTxt.textContent = `最終更新 ${time}`;
+    }
+
+    // 2. データの書き込み（管理者機能）
+    window.toggleStatus = async () => {
+        const nextStatus = currentStatus === "meeting" ? "available" : "meeting";
+        const now = new Date().toLocaleTimeString('ja-JP', {hour: '2-digit', minute:'2-digit'});
+        
+        await set(dbRef, {
+            status: nextStatus,
+            lastUpdated: now
+        });
+    };
+
+    // 管理画面の出し方（左上5回タップ）
+    let taps = 0;
+    document.getElementById("admin-trigger").onclick = () => {
+        taps++;
+        if (taps >= 5) {
+            document.getElementById("admin-panel").style.display = "block";
+        }
+    };
+</script>
+</body>
+</html>
