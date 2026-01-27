@@ -2,11 +2,11 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>在籍ステータス Sync (Persistent Ver.)</title>
+    <title>在籍ステータス Sync (Silent Ver.)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root { --red: #d32f2f; --green: #2e7d32; --dark: #333; }
-        body { margin: 0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; overflow: hidden; cursor: pointer; }
+        body { margin: 0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
         .status-box { width: 90%; max-width: 800px; padding: 10vh 20px; border-radius: 50px; text-align: center; color: white; box-shadow: 0 15px 40px rgba(0,0,0,0.15); transition: 0.4s; }
         .mode-meeting { background-color: var(--red); }
         .mode-available { background-color: var(--green); }
@@ -16,18 +16,19 @@
         .live-dot { display: inline-block; width: 10px; height: 10px; background: #2da44e; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
         
-        /* 管理パネル */
-        #admin-panel { display: none; position: fixed; bottom: 5vh; width: 80%; max-width: 300px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); text-align: center; z-index: 100; }
-        .toggle-btn { padding: 15px; font-size: 18px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; width: 100%; margin-bottom: 10px; }
-        .logout-link { font-size: 12px; color: #999; text-decoration: underline; cursor: pointer; }
+        /* ステータス更新パネル（中央下部） */
+        #admin-panel { display: none; position: fixed; bottom: 10vh; width: 80%; max-width: 300px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); text-align: center; z-index: 100; }
+        .toggle-btn { padding: 15px; font-size: 18px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; width: 100%; }
         
-        #setup-overlay { position: fixed; top: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; }
+        /* ログオフボタン（最下部に離して配置） */
+        #logout-zone { display: none; position: fixed; bottom: 2vh; text-align: center; width: 100%; }
+        .logout-link { font-size: 12px; color: #bbb; text-decoration: underline; cursor: pointer; padding: 10px; }
+        
         @media (min-width: 1000px) { .status-text { font-size: 160px; } .sub-text { font-size: 45px; } }
     </style>
 </head>
-<body onclick="enableAudio()">
+<body>
 
-    <div id="setup-overlay">画面をクリックして通知と音を有効化</div>
     <div id="admin-trigger" style="position:fixed; top:0; left:0; width:80px; height:80px; z-index:10;"></div>
 
     <div id="box" class="status-box">
@@ -41,7 +42,10 @@
 
     <div id="admin-panel">
         <button class="toggle-btn" onclick="toggleStatus()">ステータスを切り替え</button>
-        <div class="logout-link" onclick="disableAdmin()">管理モードを終了</div>
+    </div>
+
+    <div id="logout-zone">
+        <span class="logout-link" onclick="disableAdmin()">管理モードを終了してログオフ</span>
     </div>
 
 <script type="module">
@@ -65,25 +69,22 @@
 
     let currentStatus = null;
     let isFirstLoad = true;
-    const chime = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
 
-    // 初期化：ローカルストレージから状態を復元
+    // 初期化
     window.onload = () => {
         if (localStorage.getItem('admin_enabled') === 'true') {
-            document.getElementById("admin-panel").style.display = "block";
+            showAdminUI();
         }
-    };
-
-    window.enableAudio = () => {
-        chime.play().then(() => { chime.pause(); chime.currentTime = 0; document.getElementById('setup-overlay').style.display = 'none'; });
-        if (Notification.permission !== "granted") Notification.requestPermission();
+        if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+            Notification.requestPermission();
+        }
     };
 
     onValue(dbRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
             if (!isFirstLoad && currentStatus !== data.status) {
-                playNotification(data.status);
+                sendNotification(data.status);
             }
             currentStatus = data.status;
             updateUI(data.status, data.lastUpdated);
@@ -91,10 +92,11 @@
         }
     });
 
-    function playNotification(status) {
-        chime.play().catch(e => {});
+    function sendNotification(status) {
         if (Notification.permission === "granted") {
-            new Notification("ステータス更新", { body: status === "meeting" ? "会議中になりました" : "対応可能になりました" });
+            new Notification("ステータス更新", {
+                body: status === "meeting" ? "会議中になりました" : "対応可能になりました"
+            });
         }
     }
 
@@ -117,10 +119,9 @@
     }
 
     window.toggleStatus = async () => {
-        // 保存されたパスワードを取得、なければ入力させる
         let password = localStorage.getItem('fb_password');
         if (!password) {
-            password = prompt("合言葉（パスワード）を入力してください");
+            password = prompt("パスワードを入力してください");
             if (!password) return;
         }
 
@@ -133,29 +134,32 @@
                 lastUpdated: now,
                 secret: password 
             });
-            // 成功したらパスワードを保存
             localStorage.setItem('fb_password', password);
         } catch (e) {
             alert("エラー：パスワードが違うか、権限がありません。");
-            localStorage.removeItem('fb_password'); // 失敗時は保存したパスワードを消す
+            localStorage.removeItem('fb_password');
         }
     };
 
-    // 管理モード終了
+    function showAdminUI() {
+        document.getElementById("admin-panel").style.display = "block";
+        document.getElementById("logout-zone").style.display = "block";
+        localStorage.setItem('admin_enabled', 'true');
+    }
+
     window.disableAdmin = () => {
+        if (!confirm("管理モードを終了しますか？（次回から再度5回タップが必要になります）")) return;
         localStorage.removeItem('admin_enabled');
         localStorage.removeItem('fb_password');
         document.getElementById("admin-panel").style.display = "none";
-        alert("管理モードを終了しました");
+        document.getElementById("logout-zone").style.display = "none";
     };
 
     let taps = 0;
-    document.getElementById("admin-trigger").onclick = (e) => {
-        e.stopPropagation();
+    document.getElementById("admin-trigger").onclick = () => {
         taps++;
         if (taps >= 5) {
-            document.getElementById("admin-panel").style.display = "block";
-            localStorage.setItem('admin_enabled', 'true');
+            showAdminUI();
             taps = 0;
         }
     };
