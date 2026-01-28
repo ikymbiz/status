@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>在籍ステータス Sync (Silent Ver.)</title>
+    <title>在籍ステータス</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root { --red: #d32f2f; --green: #2e7d32; --dark: #333; }
@@ -14,13 +14,16 @@
         .sub-text { font-size: 5vw; margin-top: 1rem; font-weight: bold; }
         .info-container { margin-top: 2.5rem; text-align: center; color: #666; }
         .live-dot { display: inline-block; width: 10px; height: 10px; background: #2da44e; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
+        
+        /* 更新ボタンのスタイル */
+        .refresh-btn { margin-top: 20px; padding: 10px 20px; border-radius: 30px; border: 1px solid #ddd; background: #fdfdfd; cursor: pointer; color: #888; font-size: 14px; font-weight: bold; transition: 0.2s; }
+        .refresh-btn:active { background: #eee; transform: scale(0.95); }
+
         @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
         
-        /* ステータス更新パネル（中央下部） */
         #admin-panel { display: none; position: fixed; bottom: 10vh; width: 80%; max-width: 300px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); text-align: center; z-index: 100; }
         .toggle-btn { padding: 15px; font-size: 18px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; width: 100%; }
         
-        /* ログオフボタン（最下部に離して配置） */
         #logout-zone { display: none; position: fixed; bottom: 2vh; text-align: center; width: 100%; }
         .logout-link { font-size: 12px; color: #bbb; text-decoration: underline; cursor: pointer; padding: 10px; }
         
@@ -38,6 +41,7 @@
 
     <div class="info-container">
         <div><span class="live-dot"></span><span id="abs-time">最終更新: --:--</span></div>
+        <button class="refresh-btn" onclick="location.reload()">🔄 情報を更新する</button>
     </div>
 
     <div id="admin-panel">
@@ -70,7 +74,7 @@
     let currentStatus = null;
     let isFirstLoad = true;
 
-    // 初期化
+    // 初期化処理
     window.onload = () => {
         if (localStorage.getItem('admin_enabled') === 'true') {
             showAdminUI();
@@ -80,9 +84,11 @@
         }
     };
 
+    // Firebaseデータの監視
     onValue(dbRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
+            // ステータス変更時に通知を飛ばす
             if (!isFirstLoad && currentStatus !== data.status) {
                 sendNotification(data.status);
             }
@@ -118,10 +124,11 @@
         absTimeTxt.textContent = `最終更新 ${time}`;
     }
 
+    // ステータス切り替え実行
     window.toggleStatus = async () => {
         let password = localStorage.getItem('fb_password');
         if (!password) {
-            password = prompt("パスワードを入力してください");
+            password = prompt("合言葉（パスワード）を入力してください");
             if (!password) return;
         }
 
@@ -135,6 +142,12 @@
                 secret: password 
             });
             localStorage.setItem('fb_password', password);
+            
+            // 登録後、確実に最新を読み込むために0.5秒後にリロード
+            setTimeout(() => {
+                location.reload();
+            }, 500);
+
         } catch (e) {
             alert("エラー：パスワードが違うか、権限がありません。");
             localStorage.removeItem('fb_password');
@@ -148,13 +161,14 @@
     }
 
     window.disableAdmin = () => {
-        if (!confirm("管理モードを終了しますか？（次回から再度5回タップが必要になります）")) return;
+        if (!confirm("管理モードを終了しますか？")) return;
         localStorage.removeItem('admin_enabled');
         localStorage.removeItem('fb_password');
         document.getElementById("admin-panel").style.display = "none";
         document.getElementById("logout-zone").style.display = "none";
     };
 
+    // 5回タップで隠しメニュー表示
     let taps = 0;
     document.getElementById("admin-trigger").onclick = () => {
         taps++;
