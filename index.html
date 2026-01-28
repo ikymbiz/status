@@ -7,22 +7,25 @@
     <style>
         :root { --red: #d32f2f; --green: #2e7d32; --dark: #333; }
         body { margin: 0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
-        .status-box { width: 90%; max-width: 800px; padding: 10vh 20px; border-radius: 50px; text-align: center; color: white; box-shadow: 0 15px 40px rgba(0,0,0,0.15); transition: 0.4s; }
+        
+        /* ステータスボックス */
+        .status-box { width: 90%; max-width: 800px; padding: 10vh 20px; border-radius: 50px; text-align: center; color: white; box-shadow: 0 15px 40px rgba(0,0,0,0.15); transition: background-color 0.3s ease, transform 0.2s; }
         .mode-meeting { background-color: var(--red); }
         .mode-available { background-color: var(--green); }
+        
         .status-text { font-size: 15vw; font-weight: 900; margin: 0; }
         .sub-text { font-size: 5vw; margin-top: 1rem; font-weight: bold; }
+        
+        /* 下部インフォメーション */
         .info-container { margin-top: 2.5rem; text-align: center; color: #666; }
         .live-dot { display: inline-block; width: 10px; height: 10px; background: #2da44e; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
         
-        /* 更新ボタンのスタイル */
-        .refresh-btn { margin-top: 20px; padding: 10px 20px; border-radius: 30px; border: 1px solid #ddd; background: #fdfdfd; cursor: pointer; color: #888; font-size: 14px; font-weight: bold; transition: 0.2s; }
-        .refresh-btn:active { background: #eee; transform: scale(0.95); }
-
         @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
         
+        /* 管理用パネル */
         #admin-panel { display: none; position: fixed; bottom: 10vh; width: 80%; max-width: 300px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); text-align: center; z-index: 100; }
-        .toggle-btn { padding: 15px; font-size: 18px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; width: 100%; }
+        .toggle-btn { padding: 15px; font-size: 18px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; width: 100%; transition: opacity 0.2s; }
+        .toggle-btn:active { opacity: 0.7; }
         
         #logout-zone { display: none; position: fixed; bottom: 2vh; text-align: center; width: 100%; }
         .logout-link { font-size: 12px; color: #bbb; text-decoration: underline; cursor: pointer; padding: 10px; }
@@ -41,7 +44,6 @@
 
     <div class="info-container">
         <div><span class="live-dot"></span><span id="abs-time">最終更新: --:--</span></div>
-        <button class="refresh-btn" onclick="location.reload()">🔄 情報を更新する</button>
     </div>
 
     <div id="admin-panel">
@@ -49,7 +51,7 @@
     </div>
 
     <div id="logout-zone">
-        <span class="logout-link" onclick="disableAdmin()">管理モードを終了してログオフ</span>
+        <span class="logout-link" onclick="disableAdmin()">管理モード終了</span>
     </div>
 
 <script type="module">
@@ -74,21 +76,11 @@
     let currentStatus = null;
     let isFirstLoad = true;
 
-    // 初期化処理
-    window.onload = () => {
-        if (localStorage.getItem('admin_enabled') === 'true') {
-            showAdminUI();
-        }
-        if (Notification.permission !== "granted" && Notification.permission !== "denied") {
-            Notification.requestPermission();
-        }
-    };
-
-    // Firebaseデータの監視
+    // Firebaseデータの監視（リアルタイム更新の核心）
     onValue(dbRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
-            // ステータス変更時に通知を飛ばす
+            // ステータス変更時に通知
             if (!isFirstLoad && currentStatus !== data.status) {
                 sendNotification(data.status);
             }
@@ -97,14 +89,6 @@
             isFirstLoad = false;
         }
     });
-
-    function sendNotification(status) {
-        if (Notification.permission === "granted") {
-            new Notification("ステータス更新", {
-                body: status === "meeting" ? "会議中になりました" : "対応可能になりました"
-            });
-        }
-    }
 
     function updateUI(status, time) {
         const box = document.getElementById("box");
@@ -124,11 +108,11 @@
         absTimeTxt.textContent = `最終更新 ${time}`;
     }
 
-    // ステータス切り替え実行
+    // ステータス切り替え実行（リロードなし！）
     window.toggleStatus = async () => {
         let password = localStorage.getItem('fb_password');
         if (!password) {
-            password = prompt("合言葉（パスワード）を入力してください");
+            password = prompt("パスワードを入力してください");
             if (!password) return;
         }
 
@@ -136,24 +120,29 @@
         const now = new Date().toLocaleTimeString('ja-JP', {hour: '2-digit', minute:'2-digit'});
 
         try {
+            // データベースに書き込むだけ（リロード不要）
             await set(dbRef, { 
                 status: nextStatus, 
                 lastUpdated: now,
                 secret: password 
             });
             localStorage.setItem('fb_password', password);
-            
-            // 登録後、確実に最新を読み込むために0.5秒後にリロード
-            setTimeout(() => {
-                location.reload();
-            }, 500);
-
         } catch (e) {
-            alert("エラー：パスワードが違うか、権限がありません。");
+            alert("エラー：権限がありません。");
             localStorage.removeItem('fb_password');
         }
     };
 
+    // 通知機能
+    function sendNotification(status) {
+        if (Notification.permission === "granted") {
+            new Notification("ステータス更新", {
+                body: status === "meeting" ? "会議中になりました" : "対応可能になりました"
+            });
+        }
+    }
+
+    // 管理モードの切り替え
     function showAdminUI() {
         document.getElementById("admin-panel").style.display = "block";
         document.getElementById("logout-zone").style.display = "block";
@@ -168,7 +157,7 @@
         document.getElementById("logout-zone").style.display = "none";
     };
 
-    // 5回タップで隠しメニュー表示
+    // 隠しコマンド（5回タップ）
     let taps = 0;
     document.getElementById("admin-trigger").onclick = () => {
         taps++;
@@ -176,6 +165,12 @@
             showAdminUI();
             taps = 0;
         }
+    };
+
+    // ページ読み込み時のチェック
+    window.onload = () => {
+        if (localStorage.getItem('admin_enabled') === 'true') showAdminUI();
+        if (Notification.permission === "default") Notification.requestPermission();
     };
 </script>
 </body>
