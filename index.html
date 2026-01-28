@@ -2,23 +2,26 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>在籍ステータス Sync (Ultra Response)</title>
+    <title>在籍ステータス</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root { --red: #d32f2f; --green: #2e7d32; --dark: #333; }
         body { margin: 0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
-        .status-box { width: 90%; max-width: 800px; padding: 10vh 20px; border-radius: 50px; text-align: center; color: white; box-shadow: 0 15px 40px rgba(0,0,0,0.15); transition: background-color 0.15s ease-out; }
+        
+        /* 状態BOX：transitionを短くして反応速度を上げる */
+        .status-box { width: 90%; max-width: 800px; padding: 10vh 20px; border-radius: 50px; text-align: center; color: white; box-shadow: 0 15px 40px rgba(0,0,0,0.15); transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
         .mode-meeting { background-color: var(--red); }
         .mode-available { background-color: var(--green); }
-        .status-text { font-size: 15vw; font-weight: 900; margin: 0; pointer-events: none; }
-        .sub-text { font-size: 5vw; margin-top: 1rem; font-weight: bold; pointer-events: none; }
-        .info-container { margin-top: 2.5rem; text-align: center; color: #666; }
-        .live-dot { display: inline-block; width: 10px; height: 10px; background: #2da44e; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
-        #admin-panel { display: none; position: fixed; bottom: 10vh; width: 80%; max-width: 300px; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); text-align: center; z-index: 100; }
-        .toggle-btn { padding: 15px; font-size: 18px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; width: 100%; active { transform: scale(0.95); } }
-        #logout-zone { display: none; position: fixed; bottom: 2vh; text-align: center; width: 100%; }
-        .logout-link { font-size: 12px; color: #bbb; text-decoration: underline; cursor: pointer; }
+        
+        .status-text { font-size: 15vw; font-weight: 900; margin: 0; }
+        .sub-text { font-size: 5vw; margin-top: 1rem; font-weight: bold; }
+        
+        /* 管理パネル */
+        #admin-panel { display: none; margin-top: 2rem; }
+        .toggle-btn { padding: 20px 50px; font-size: 20px; font-weight: bold; color: white; background: var(--dark); border: none; border-radius: 100px; cursor: pointer; transition: transform 0.1s; }
+        .toggle-btn:active { transform: scale(0.95); }
+        
+        .info-container { margin-top: 2.5rem; text-align: center; color: #666; font-size: 14px; }
         @media (min-width: 1000px) { .status-text { font-size: 160px; } .sub-text { font-size: 45px; } }
     </style>
 </head>
@@ -31,15 +34,13 @@
         <p id="sub" class="sub-text"></p>
     </div>
 
-    <div class="info-container">
-        <div><span class="live-dot"></span><span id="abs-time">同期中...</span></div>
-    </div>
-
     <div id="admin-panel">
-        <button id="toggle-btn" class="toggle-btn" onclick="toggleStatus()">ステータスを切り替え</button>
+        <button class="toggle-btn" onclick="toggleStatus()">ステータス切替</button>
     </div>
 
-    <div id="logout-zone"><span class="logout-link" onclick="disableAdmin()">ログオフ</span></div>
+    <div class="info-container">
+        <span id="abs-time">同期中...</span>
+    </div>
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -59,10 +60,9 @@
     const db = getDatabase(app);
     const dbRef = ref(db, 'presence');
 
-    let currentStatus = null;
-    let isFirstLoad = true;
+    let currentStatus = localStorage.getItem('last_status') || 'available';
 
-    // UIを更新する関数
+    // UIを更新する共通関数
     function updateUI(status, time) {
         const box = document.getElementById("box");
         const statusTxt = document.getElementById("status");
@@ -79,23 +79,24 @@
             subTxt.textContent = "ただし常時勤務中";
         }
         if(time) absTimeTxt.textContent = `最終更新 ${time}`;
+        
+        // ローカルに保存して次回起動を速くする
+        localStorage.setItem('last_status', status);
     }
 
-    // 1. Firebaseの監視
+    // 初回表示（ローカルデータがあれば即表示）
+    updateUI(currentStatus);
+
+    // 閲覧者向けのリアルタイム監視
     onValue(dbRef, (snapshot) => {
         const data = snapshot.val();
-        if (data) {
-            // 他のブラウザで変更された場合のみUIを更新（自分が押した時は既に変わっているため）
-            if (currentStatus !== data.status) {
-                if (!isFirstLoad) sendNotification(data.status);
-                currentStatus = data.status;
-                updateUI(data.status, data.lastUpdated);
-            }
-            isFirstLoad = false;
+        if (data && data.status !== currentStatus) {
+            currentStatus = data.status;
+            updateUI(data.status, data.lastUpdated);
         }
     });
 
-    // 2. ステータス切り替え（楽観的UI更新）
+    // 管理者向けの更新処理
     window.toggleStatus = async () => {
         let password = localStorage.getItem('fb_password');
         if (!password) {
@@ -103,54 +104,41 @@
             if (!password) return;
         }
 
-        // --- ここがポイント: サーバーの返答を待たずにUIを変える ---
         const nextStatus = currentStatus === "meeting" ? "available" : "meeting";
         const now = new Date().toLocaleTimeString('ja-JP', {hour: '2-digit', minute:'2-digit'});
-        
-        const oldStatus = currentStatus; // エラー時のロールバック用
-        currentStatus = nextStatus; 
-        updateUI(nextStatus, now); // 爆速で書き換え
-        // --------------------------------------------------
+
+        // 【ビビット反映】サーバーの結果を待たずにUIを変える
+        const oldStatus = currentStatus;
+        currentStatus = nextStatus;
+        updateUI(nextStatus, now);
 
         try {
-            await set(dbRef, { status: nextStatus, lastUpdated: now, secret: password });
+            await set(dbRef, { 
+                status: nextStatus, 
+                lastUpdated: now,
+                secret: password // ルールで照合している場合
+            });
             localStorage.setItem('fb_password', password);
         } catch (e) {
-            // 書き込み失敗（パスワード間違い等）した時だけ元に戻す
-            alert("更新に失敗しました。");
+            // 書き込み権限がない場合、元の状態に強制的に戻す
+            alert("更新権限がありません（パスワード相違など）");
             currentStatus = oldStatus;
             updateUI(oldStatus);
-            localStorage.removeItem('fb_password');
         }
     };
 
-    // --- 以下、ユーティリティ ---
-    function sendNotification(status) {
-        if (Notification.permission === "granted") {
-            new Notification("ステータス更新", { body: status === "meeting" ? "会議中" : "対応可" });
-        }
-    }
-
-    function showAdminUI() {
-        document.getElementById("admin-panel").style.display = "block";
-        document.getElementById("logout-zone").style.display = "block";
-        localStorage.setItem('admin_enabled', 'true');
-    }
-
-    window.disableAdmin = () => {
-        localStorage.clear();
-        location.reload();
-    };
-
+    // 隠しトリガー
     let taps = 0;
     document.getElementById("admin-trigger").onclick = () => {
-        if (++taps >= 5) { showAdminUI(); taps = 0; }
+        if (++taps >= 5) {
+            document.getElementById("admin-panel").style.display = "block";
+            taps = 0;
+        }
     };
 
-    window.onload = () => {
-        if (localStorage.getItem('admin_enabled') === 'true') showAdminUI();
-        Notification.requestPermission();
-    };
+    if (localStorage.getItem('admin_enabled')) {
+        document.getElementById("admin-panel").style.display = "block";
+    }
 </script>
 </body>
 </html>
